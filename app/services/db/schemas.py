@@ -12,7 +12,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import expression
 from sqlalchemy.orm import declarative_base, relationship
-from app.models.models import DataType
 
 
 Base = declarative_base()
@@ -43,6 +42,7 @@ class OutliersRecords(Base):
     outliers_search_iteration_num = Column(Integer, nullable=False)
     outliers_search_iteration_datetime = Column(DateTime(timezone=True), nullable=False)
 
+
     raw_record = relationship("RawRecords", backref="outlier_record", uselist=False)
 
 
@@ -57,3 +57,25 @@ class MLPredictionsRecords(Base):
 
     iteration_num = Column(Integer, nullable=False)
     iteration_datetime = Column(DateTime(timezone=True), nullable=False)
+
+
+class ProcessedRecords(Base):
+    __tablename__ = "processed_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    data_type = Column(String, nullable=False)
+    email = Column(String, nullable=False, index=True)
+    time = Column(DateTime(timezone=True), nullable=False, index=True)
+    value = Column(Text, nullable=False)
+
+
+class ProcessedRecordsOutliersRecords(Base):
+    __tablename__ = "processed_records_outliers_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    processed_record_id = Column(Integer, ForeignKey("processed_records.id"), nullable=False)
+
+    outliers_search_iteration_num = Column(Integer, nullable=False)
+    outliers_search_iteration_datetime = Column(DateTime(timezone=True), nullable=False)
+
+    processed_records = relationship("ProcessedRecords", backref="processed_records_outliers_records", uselist=False)

@@ -34,6 +34,7 @@ async def send_google_health_connect_data_kafka(
          если `sent_at` текущего запроса новее сохранённого.
     """
     try:
+        logging.info(f"got this datatype {data_type}: {data}")
         email = user_data.email
 
         for item in data:
