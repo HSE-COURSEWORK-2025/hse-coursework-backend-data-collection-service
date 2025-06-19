@@ -1,20 +1,13 @@
-import json
-from typing import List
-import random
-import asyncio
 from fastapi import (
     APIRouter,
-    HTTPException,
-    status,
-    BackgroundTasks,
-    Depends,
     WebSocket,
     WebSocketDisconnect,
 )
-from app.services.kafka import kafka_client
 from app.services.auth import get_current_user
-from app.models.models import DataItem, DataType, KafkaRawDataMsg
-from app.settings import settings, security, google_fitness_api_user_clients, google_health_api_user_clients
+from app.settings import (
+    google_fitness_api_user_clients,
+    google_health_api_user_clients,
+)
 
 
 api_v2_processing_status_router = APIRouter(

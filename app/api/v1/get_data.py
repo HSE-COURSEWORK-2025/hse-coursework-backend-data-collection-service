@@ -1,15 +1,12 @@
 import json
 import io
 import qrcode
-import isodate
-import logging
 
 from typing import List
 
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
 
-from dateutil.parser import parse
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +15,13 @@ from starlette.concurrency import run_in_threadpool
 from app.services.auth import get_current_user
 from app.services.db.db_session import get_session
 from app.services.db.engine import db_engine
-from app.services.db.schemas import RawRecords, OutliersRecords, MLPredictionsRecords, ProcessedRecords, ProcessedRecordsOutliersRecords
+from app.services.db.schemas import (
+    RawRecords,
+    OutliersRecords,
+    MLPredictionsRecords,
+    ProcessedRecords,
+    ProcessedRecordsOutliersRecords,
+)
 from app.services.FHIR import FHIRTransformer
 from app.models.models import DataType, DataRecord, DataWithOutliers, Prediction
 from app.settings import settings, security
@@ -64,7 +67,7 @@ async def get_raw_data_type(
         return [
             DataRecord(
                 X=rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                Y=float(str(rec.value))
+                Y=float(str(rec.value)),
             )
             for rec in records
         ]
@@ -109,7 +112,7 @@ async def get_processed_data_type(
         return [
             DataRecord(
                 X=rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                Y=float(str(rec.value))
+                Y=float(str(rec.value)),
             )
             for rec in records
         ]
@@ -144,7 +147,6 @@ async def get_raw_data_with_outliers(
         )
 
     try:
-        # 1) Все данные пользователя по типу
         stmt_all = (
             select(RawRecords)
             .where(
@@ -155,7 +157,10 @@ async def get_raw_data_with_outliers(
         all_result = await session.execute(stmt_all)
         all_records = all_result.scalars().all()
         data = [
-            DataRecord(X=rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), Y=float(rec.value))
+            DataRecord(
+                X=rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                Y=float(rec.value),
+            )
             for rec in all_records
         ]
 
@@ -163,28 +168,21 @@ async def get_raw_data_with_outliers(
             select(func.max(OutliersRecords.outliers_search_iteration_num))
             .join(RawRecords, OutliersRecords.raw_record_id == RawRecords.id)
             .where(
-                (RawRecords.data_type == data_type.value) &
-                (RawRecords.email == email)
+                (RawRecords.data_type == data_type.value) & (RawRecords.email == email)
             )
         )
 
-        # 2) Читаем флаг из Redis  
         REDIS_KEY = f"{settings.REDIS_FIND_OUTLIERS_JOB_IS_ACTIVE_NAMESPACE}{email}"
-        flag = await redis_client_async.get(REDIS_KEY)  # вернет строку "true"/"false" или None
+        flag = await redis_client_async.get(REDIS_KEY)
 
-        # 3) Достаем текущее значение max_iter из базы  
-        #    используем session.scalar, чтобы из scalar_subquery получить численное значение
-        max_iter = await session.scalar(iter_num_query)  # None или целое число
+        max_iter = await session.scalar(iter_num_query)
 
-        # 4) Если флаг == "true", уменьшаем его на 1
         if flag == "true" and max_iter is not None:
             max_iter = max_iter - 1
 
         if max_iter is None:
             max_iter = 0
 
-
-        # 3) Записи, отмеченные как выбросы в этой итерации
         stmt_out = (
             select(RawRecords)
             .join(
@@ -199,7 +197,10 @@ async def get_raw_data_with_outliers(
         )
         out_result = await session.execute(stmt_out)
         outlier_recs = out_result.scalars().all()
-        outliersX = [rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") for rec in outlier_recs]
+        outliersX = [
+            rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for rec in outlier_recs
+        ]
 
         return DataWithOutliers(data=data, outliersX=outliersX)
 
@@ -208,7 +209,6 @@ async def get_raw_data_with_outliers(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при выборке данных: {e}",
         )
-
 
 
 @api_v2_get_data_router.get(
@@ -236,62 +236,75 @@ async def get_processed_data_with_outliers(
         )
 
     try:
-        # 1) Все данные пользователя по типу
         stmt_all = (
             select(ProcessedRecords)
             .where(
-                (ProcessedRecords.data_type == data_type.value) & (ProcessedRecords.email == email)
+                (ProcessedRecords.data_type == data_type.value)
+                & (ProcessedRecords.email == email)
             )
             .order_by(ProcessedRecords.time)
         )
         all_result = await session.execute(stmt_all)
         all_records = all_result.scalars().all()
         data = [
-            DataRecord(X=rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), Y=float(rec.value))
+            DataRecord(
+                X=rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                Y=float(rec.value),
+            )
             for rec in all_records
         ]
 
         iter_num_query = (
-            select(func.max(ProcessedRecordsOutliersRecords.outliers_search_iteration_num))
-            .join(ProcessedRecords, ProcessedRecordsOutliersRecords.processed_record_id == ProcessedRecords.id)
+            select(
+                func.max(ProcessedRecordsOutliersRecords.outliers_search_iteration_num)
+            )
+            .join(
+                ProcessedRecords,
+                ProcessedRecordsOutliersRecords.processed_record_id
+                == ProcessedRecords.id,
+            )
             .where(
-                (ProcessedRecords.data_type == data_type.value) &
-                (ProcessedRecords.email == email)
+                (ProcessedRecords.data_type == data_type.value)
+                & (ProcessedRecords.email == email)
             )
         )
 
-        # 2) Читаем флаг из Redis  
         REDIS_KEY = f"{settings.REDIS_FIND_OUTLIERS_JOB_IS_ACTIVE_NAMESPACE}{email}"
-        flag = await redis_client_async.get(REDIS_KEY)  # вернет строку "true"/"false" или None
+        flag = await redis_client_async.get(REDIS_KEY)
 
-        # 3) Достаем текущее значение max_iter из базы  
-        #    используем session.scalar, чтобы из scalar_subquery получить численное значение
-        max_iter = await session.scalar(iter_num_query)  # None или целое число
+        max_iter = await session.scalar(iter_num_query)
 
-        # 4) Если флаг == "true", уменьшаем его на 1
         if flag == "true" and max_iter is not None:
             max_iter = max_iter - 1
 
         if max_iter is None:
             max_iter = 0
 
-
-        # 3) Записи, отмеченные как выбросы в этой итерации
         stmt_out = (
             select(ProcessedRecords)
             .join(
                 ProcessedRecordsOutliersRecords,
-                (ProcessedRecordsOutliersRecords.processed_record_id == ProcessedRecords.id)
-                & (ProcessedRecordsOutliersRecords.outliers_search_iteration_num == max_iter),
+                (
+                    ProcessedRecordsOutliersRecords.processed_record_id
+                    == ProcessedRecords.id
+                )
+                & (
+                    ProcessedRecordsOutliersRecords.outliers_search_iteration_num
+                    == max_iter
+                ),
             )
             .where(
-                (ProcessedRecords.data_type == data_type.value) & (ProcessedRecords.email == email)
+                (ProcessedRecords.data_type == data_type.value)
+                & (ProcessedRecords.email == email)
             )
             .order_by(ProcessedRecords.time)
         )
         out_result = await session.execute(stmt_out)
         outlier_recs = out_result.scalars().all()
-        outliersX = [rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") for rec in outlier_recs]
+        outliersX = [
+            rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for rec in outlier_recs
+        ]
 
         return DataWithOutliers(data=data, outliersX=outliersX)
 
@@ -300,7 +313,6 @@ async def get_processed_data_with_outliers(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при выборке данных: {e}",
         )
-
 
 
 @api_v2_get_data_router.get(
@@ -328,7 +340,6 @@ async def get_processed_data_with_outliers(
         )
 
     try:
-        # 1) Все данные пользователя по типу
         stmt_all = (
             select(RawRecords)
             .where(
@@ -339,52 +350,63 @@ async def get_processed_data_with_outliers(
         all_result = await session.execute(stmt_all)
         all_records = all_result.scalars().all()
         data = [
-            DataRecord(X=rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), Y=float(rec.value))
+            DataRecord(
+                X=rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                Y=float(rec.value),
+            )
             for rec in all_records
         ]
 
         iter_num_query = (
-            select(func.max(ProcessedRecordsOutliersRecords.outliers_search_iteration_num))
-            .join(ProcessedRecords, ProcessedRecordsOutliersRecords.raw_record_id == ProcessedRecords.id)
+            select(
+                func.max(ProcessedRecordsOutliersRecords.outliers_search_iteration_num)
+            )
+            .join(
+                ProcessedRecords,
+                ProcessedRecordsOutliersRecords.raw_record_id == ProcessedRecords.id,
+            )
             .where(
-                (ProcessedRecords.data_type == data_type.value) &
-                (ProcessedRecords.email == email)
+                (ProcessedRecords.data_type == data_type.value)
+                & (ProcessedRecords.email == email)
             )
             .order_by(ProcessedRecords.time)
         )
 
-        # 2) Читаем флаг из Redis  
         REDIS_KEY = f"{settings.REDIS_FIND_OUTLIERS_JOB_IS_ACTIVE_NAMESPACE}{email}"
-        flag = await redis_client_async.get(REDIS_KEY)  # вернет строку "true"/"false" или None
+        flag = await redis_client_async.get(REDIS_KEY)
+        max_iter = await session.scalar(iter_num_query)
 
-        # 3) Достаем текущее значение max_iter из базы  
-        #    используем session.scalar, чтобы из scalar_subquery получить численное значение
-        max_iter = await session.scalar(iter_num_query)  # None или целое число
-
-        # 4) Если флаг == "true", уменьшаем его на 1
         if flag == "true" and max_iter is not None:
             max_iter = max_iter - 1
 
         if max_iter is None:
             max_iter = 0
 
-
-        # 3) Записи, отмеченные как выбросы в этой итерации
         stmt_out = (
             select(ProcessedRecords)
             .join(
                 ProcessedRecordsOutliersRecords,
-                (ProcessedRecordsOutliersRecords.processed_record_id == ProcessedRecords.id)
-                & (ProcessedRecordsOutliersRecords.outliers_search_iteration_num == max_iter),
+                (
+                    ProcessedRecordsOutliersRecords.processed_record_id
+                    == ProcessedRecords.id
+                )
+                & (
+                    ProcessedRecordsOutliersRecords.outliers_search_iteration_num
+                    == max_iter
+                ),
             )
             .where(
-                (ProcessedRecords.data_type == data_type.value) & (ProcessedRecords.email == email)
+                (ProcessedRecords.data_type == data_type.value)
+                & (ProcessedRecords.email == email)
             )
             .order_by(ProcessedRecords.time)
         )
         out_result = await session.execute(stmt_out)
         outlier_recs = out_result.scalars().all()
-        outliersX = [rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") for rec in outlier_recs]
+        outliersX = [
+            rec.time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for rec in outlier_recs
+        ]
 
         return DataWithOutliers(data=data, outliersX=outliersX)
 
@@ -419,21 +441,15 @@ async def get_predictions(
         )
 
     try:
-        # todo fix
-        # 1) Максимальный номер итерации для данного email
         subq = (
             select(func.max(MLPredictionsRecords.iteration_num))
             .where(MLPredictionsRecords.email == email)
             .scalar_subquery()
         )
 
-        # 2) Записи этой итерации
-        stmt = (
-            select(MLPredictionsRecords)
-            .where(
-                (MLPredictionsRecords.email == email)
-                & (MLPredictionsRecords.iteration_num == subq)
-            )
+        stmt = select(MLPredictionsRecords).where(
+            (MLPredictionsRecords.email == email)
+            & (MLPredictionsRecords.iteration_num == subq)
         )
         recs_result = await session.execute(stmt)
         recs = recs_result.scalars().all()
@@ -467,18 +483,15 @@ async def get_fhir_all_data_manual(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Email не передан"
         )
 
-    # 1) Создаём AsyncSession вручную
     session: AsyncSession = db_engine.create_session()
 
     async def bundle_generator():
-        # Отправляем начало JSON Bundle
         yield '{"resourceType":"Bundle","type":"collection","entry":['
 
         first = True
         last_id = 0
 
         while True:
-            # 2) Формируем запрос для следующей пачки по id
             stmt = (
                 select(RawRecords)
                 .where((RawRecords.email == email) & (RawRecords.id > last_id))
@@ -506,14 +519,11 @@ async def get_fhir_all_data_manual(
                 yield json.dumps(entry, ensure_ascii=False)
                 last_id = rec.id
 
-            # Если размер batch меньше BATCH_SIZE — это была последняя пачка
             if len(batch) < settings.BATCH_SIZE:
                 break
 
-        # Закрываем JSON-массив и объект Bundle
         yield "]}"
 
-    # 3) Откладываем закрытие сессии до конца стрима
     background_tasks.add_task(session.close)
 
     return StreamingResponse(bundle_generator(), media_type="application/fhir+json")
@@ -542,7 +552,6 @@ async def get_fhir_all_data_qr(
             f"{settings.DOMAIN_NAME}/get_data/fhir/get_all_data?email={user_email}"
         )
 
-        # Генерация QR занимает время, обёрнём в поток, чтобы не блокировать loop
         def sync_make_qr():
             qr = qrcode.QRCode(
                 version=1,

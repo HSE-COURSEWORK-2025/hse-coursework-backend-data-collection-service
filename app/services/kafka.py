@@ -1,9 +1,10 @@
 import json
 import logging
 from aiokafka import AIOKafkaProducer
-from app.settings import settings  # Путь до ваших настроек
+from app.settings import settings
 
 logger = logging.getLogger(__name__)
+
 
 class KafkaClient:
     _instance = None
@@ -21,8 +22,8 @@ class KafkaClient:
         if self._producer is None:
             try:
                 self._producer = AIOKafkaProducer(
-                    bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,  # например: "localhost:9092"
-                    value_serializer=lambda v: json.dumps(v).encode("utf-8")
+                    bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
+                    value_serializer=lambda v: json.dumps(v).encode("utf-8"),
                 )
                 await self._producer.start()
                 logger.info(f"Подключение к Kafka: {settings.KAFKA_BOOTSTRAP_SERVERS}")
@@ -45,10 +46,13 @@ class KafkaClient:
         Если продюсер не подключён, генерируется исключение.
         """
         if self._producer is None:
-            raise Exception("Kafka продюсер не подключен. Вызовите connect() перед использованием.")
+            raise Exception(
+                "Kafka продюсер не подключен. Вызовите connect() перед использованием."
+            )
         return getattr(self._producer, name)
 
     def __repr__(self):
         return f"<KafkaClient connected={self._producer is not None}>"
+
 
 kafka_client = KafkaClient()
